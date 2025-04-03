@@ -3,11 +3,16 @@ import UIKit
 import AVFoundation
 import Photos
 
-public class SwiftVideoEditorNativePlugin: NSObject, FlutterPlugin {
+public class SwiftVideoEditorNativePlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
+  private var eventSink: FlutterEventSink?
+
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "video_editor_native", binaryMessenger: registrar.messenger())
+    let eventChannel = FlutterEventChannel(name: "video_editor_native_progress", binaryMessenger: registrar.messenger())
+
     let instance = SwiftVideoEditorNativePlugin()
     registrar.addMethodCallDelegate(instance, channel: channel)
+    eventChannel.setStreamHandler(instance)
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -47,6 +52,16 @@ public class SwiftVideoEditorNativePlugin: NSObject, FlutterPlugin {
     }
   }
 
+  public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    self.eventSink = events
+    return nil
+  }
+
+  public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    self.eventSink = nil
+    return nil
+  }
+
   private func getOutputURL(fileName: String = "output_trimmed.mp4") -> URL {
     let tempDir = FileManager.default.temporaryDirectory
     return tempDir.appendingPathComponent(fileName)
@@ -67,6 +82,16 @@ public class SwiftVideoEditorNativePlugin: NSObject, FlutterPlugin {
     exportSession.outputURL = outputURL
     exportSession.outputFileType = .mp4
     exportSession.timeRange = timeRange
+
+    Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { timer in
+      if exportSession.status == .exporting {
+        DispatchQueue.main.async {
+          self.eventSink?(Double(exportSession.progress))
+        }
+      } else {
+        timer.invalidate()
+      }
+    }
 
     exportSession.exportAsynchronously {
       if exportSession.status == .completed {
